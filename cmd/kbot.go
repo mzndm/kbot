@@ -4,14 +4,25 @@ Copyright © 2023 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
 	"github.com/spf13/cobra"
 	telebot "gopkg.in/telebot.v3"
 )
+
+type Data struct {
+	R030         float64 `json:'r030'`
+	Txt          string  `json:'txt'`
+	Rate         float64 `json:'rate'`
+	Cc           string  `json:'cc'`
+	Exchangedate string  `json:'exchangedate'`
+}
 
 var (
 	// Teletoken bot
@@ -30,9 +41,7 @@ Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
-
 		fmt.Printf("kbot %s started ", appVersion)
-
 		kbot, err := telebot.NewBot(telebot.Settings{
 			URL:    "",
 			Token:  Teletoken,
@@ -44,22 +53,57 @@ to quickly create a Cobra application.`,
 			return
 		}
 
-		kbot.Handle(telebot.OnText, func(m telebot.Context) error {
-
-			log.Print(m.Message().Payload, m.Text())
-			payload := m.Message().Payload
-
-			switch payload {
-				case "hello":
-					err = m.Send(fmt.Sprintf("Hello I'm Kbot %s!", appVersion))
+		kbot.Handle("/start", func(ctx telebot.Context) error {
+			menu := &telebot.ReplyMarkup{
+				ReplyKeyboard: [][]telebot.ReplyButton{
+					{{Text: "Hello"}},
+					{{Text: "€ EUR"}, {Text: "$ USD"}},
+				},
 			}
+			return ctx.Send("Welcome to bot!", menu)
+		})
 
-			return err
-
+		kbot.Handle(telebot.OnText, func(m telebot.Context) error {
+			switch m.Text() {
+			case "Hello":
+				return m.Send(fmt.Sprintf("Hello I'm Kbot %s! I can find out today's exchange rate. Please, select a currency", appVersion))
+			case "€ EUR":
+				return m.Send("Euro exchange rate: " + getRate("EUR"))
+			case "$ USD":
+				return m.Send("Euro exchange rate: " + getRate("USD"))
+			default:
+				return m.Send("Unknown command. Please try again.")
+			}
 		})
 
 		kbot.Start()
 	},
+}
+
+func getRate(valcode string) string {
+	url := fmt.Sprintf("https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode=%v&json", valcode)
+	resp, getErr := http.Get(url)
+
+	if getErr != nil {
+		log.Fatal(getErr)
+	}
+
+	respBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		log.Fatal(readErr)
+	}
+
+	defer resp.Body.Close()
+
+	body := []Data{}
+	err := json.Unmarshal((respBody), &body)
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	// fmt.Println("body: ", body[0].Rate)
+	return fmt.Sprintf("%v", body[0].Rate)
 }
 
 func init() {
